@@ -1,60 +1,12 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using UnityEditor.VersionControl;
 using UnityEngine;
+using UnityEngine.Assertions;
 
-
-public class HalfEdgeEdge
-{
-	public Vector3 position;
-	public HalfEdgeEdge nextEdge;
-	public HalfEdgeEdge pairingEdge;
-
-	public bool isVisited = false;
-
-	public HalfEdgeEdge(Vector3 pPosition)
-    {
-		position = pPosition;
-    }
-
-	public void MarkTriangleVisited()
-    {
-		HalfEdgeEdge next, prev;
-		GetTrianglesEdges(out next, out prev);
-
-		isVisited = true;
-		next.isVisited = true;
-		prev.isVisited = true;
-	}
-
-	public void GetTrianglesEdges(out HalfEdgeEdge outNextEdge,out HalfEdgeEdge outPrevEdge)
-    {
-		outNextEdge = nextEdge;
-		outPrevEdge = nextEdge.nextEdge;
-    }
-
-	public void GetTrianglePairings(out HalfEdgeEdge outSelfPair, out HalfEdgeEdge outNextPair,out HalfEdgeEdge outPrevPair)
-    {
-		outSelfPair = pairingEdge;
-		outNextPair = nextEdge.pairingEdge;
-		outPrevPair = nextEdge.nextEdge.pairingEdge;
-    }
-
-	public Vector3 GetTriangleNormal()
-    {
-		return new Vector3();
-
-    }
-
-	public bool IsPlanarWith(HalfEdgeEdge edge)
-    {
-		return false;
-    }
-
-
-}
 
 public class SplittablePolygon
 {
@@ -77,31 +29,41 @@ public class SplittablePolygon
 
 public class HalfEdgeFinder : MonoBehaviour
 {
+	public int edgeCheckMax = 5000;
+
 	List<SplittablePolygon> polygonsFound = new List<SplittablePolygon>();
-	public Color[] debugColors;
+	private Color[] debugColors;
 
     Mesh mesh;
 	List<HalfEdgeEdge> edges = new List<HalfEdgeEdge>();
 
 	HalfEdgeEdge currentEdge;
 
+	public int edgeCheckCount = 0;
 
-    // Start is called before the first frame update
-    void Start()
+	public int polygonCount;
+	// Start is called before the first frame update
+	void Start()
     {
-        mesh = GetComponent<MeshFilter>().mesh;
+		Debug.unityLogger.logEnabled = false;
 
-        Debug.Log("This mesh has " + mesh.vertices.Length + " vertices");
+		mesh = GetComponent<MeshFilter>().mesh;
+
+        //Debug.Log("This mesh has " + mesh.vertices.Length + " vertices");
 
 		FindHalfEdge();
 		polygonize();
 
 		debugColors = new Color[polygonsFound.Count];
 
-        for (int i = 0; i < debugColors.Length; i++)
+		polygonCount = polygonsFound.Count;
+
+
+
+		for (int i = 0; i < debugColors.Length; i++)
         {
 			debugColors[i] = new Color
-				(UnityEngine.Random.Range(0, 1.0f), UnityEngine.Random.Range(0, 1.0f), UnityEngine.Random.Range(0, 1.0f));
+				(UnityEngine.Random.Range(0.1f, 0.5f), UnityEngine.Random.Range(0.1f, 0.5f), UnityEngine.Random.Range(0.1f, 0.5f));
 
 		}
 
@@ -124,8 +86,6 @@ public class HalfEdgeFinder : MonoBehaviour
 		{
 			Vector3 position = mesh.vertices[i];
 
-
-			
 			bool isVectorSeen = false;
 			//have we found this vector before?
 			for (int j = 0; j < uniquePositions.Count; j++)
@@ -135,9 +95,7 @@ public class HalfEdgeFinder : MonoBehaviour
 
 				//ApproximatelyWithThreshold(Vector3.Distance(uniqueTransformedPos, transformedPos), 0.0f, 0.0001f)
 				//Mathf.Approximately(Vector3.Distance(uniqueTransformedPos, transformedPos),0.0f)
-				if (Mathf.Approximately(Vector3.Distance(uniqueTransformedPos, transformedPos), 0.0f)
-
-					)
+				if (Mathf.Approximately(Vector3.Distance(uniqueTransformedPos, transformedPos), 0.0f))
 				{
 					//we have seen this vector before
 					uniqueIndex.Add(j);
@@ -156,6 +114,7 @@ public class HalfEdgeFinder : MonoBehaviour
 
 			}
 		}
+
 		Debug.Log("There are " + uniqueIndex.Count + "  uniqueIndex");
 		Debug.Log("There are " + uniquePositions.Count + " uniquePositions");
 
@@ -247,6 +206,7 @@ public class HalfEdgeFinder : MonoBehaviour
 	private void polygonize()
     {
 		bool foundUnvisitedEdge = true;
+		int i = 0;
 
 		while(foundUnvisitedEdge)
         {
@@ -272,24 +232,23 @@ public class HalfEdgeFinder : MonoBehaviour
 					planarList.Add(firstEdge.nextEdge);
 					planarList.Add(firstEdge.nextEdge.nextEdge);
 
+					int oldEdgeCheckCount = edgeCheckCount;
+
+					firstEdge.LogTrianglePositions(transform);
+
 					recursiveFindPlanarTriangles(firstEdge, 
-						nonPlanarQueue, planarList);
+						nonPlanarQueue, planarList, firstEdge);
 
 					SplittablePolygon newPolygon = new SplittablePolygon();
 					newPolygon.polygonEdges = planarList.ToList();
 
-
 					newPolygon.CalculateLocalCentroid();
 					polygonsFound.Add(newPolygon);
 
-					Debug.Log(" Edges in Polygon: " + newPolygon.polygonEdges.Count);
-
-					foreach(HalfEdgeEdge edge in planarList)
-                    {
-						Debug.Log(" -> " + edge.position);
-					}
-
 					planarList.Clear();
+					//return;
+					i++; 
+					//if(i > 2) { return; }
 
 				}
 
@@ -302,53 +261,75 @@ public class HalfEdgeFinder : MonoBehaviour
 			
     }
 
-	private void recursiveFindPlanarTriangles(HalfEdgeEdge initialEdge, Queue<HalfEdgeEdge> nonPlanarQueue, List<HalfEdgeEdge> planarList)
+	private void recursiveFindPlanarTriangles(HalfEdgeEdge initialEdge, Queue<HalfEdgeEdge> nonPlanarQueue, List<HalfEdgeEdge> planarList,HalfEdgeEdge comparisionEdge)
 	{
-		Debug.Log("---------------start recursiveFindPlanarTriangles");
+
 
 		if (initialEdge.isVisited) { return; }
 
 		Debug.Log("This node has not been visited before");
 
 		initialEdge.MarkTriangleVisited();
-
+		
 
 		HalfEdgeEdge pair1, pair2, pair3;
 		initialEdge.GetTrianglePairings(out pair1, out pair2, out pair3);
 
-		CheckEdgePlanarity(initialEdge, pair1, nonPlanarQueue, planarList);
+		Debug.Assert(pair1 != pair2);
 
-		CheckEdgePlanarity(initialEdge, pair2, nonPlanarQueue, planarList);
+		Debug.Log("pair1 Check");
+		CheckEdgePlanarity( pair1, nonPlanarQueue, planarList, comparisionEdge);
+		Debug.Log("pair2 Check");
+		CheckEdgePlanarity( pair2, nonPlanarQueue, planarList, comparisionEdge);
+		Debug.Log("pair2 Check");
+		CheckEdgePlanarity( pair3, nonPlanarQueue, planarList, comparisionEdge);
 
-		CheckEdgePlanarity(initialEdge, pair3, nonPlanarQueue, planarList);
+	
 	}
 
-	private void CheckEdgePlanarity(HalfEdgeEdge initialEdge,HalfEdgeEdge pair, Queue<HalfEdgeEdge> nonPlanarQueue, List<HalfEdgeEdge> planarList)
+	private void CheckEdgePlanarity(HalfEdgeEdge newTriangleEdge, Queue<HalfEdgeEdge> nonPlanarQueue, List<HalfEdgeEdge> planarList, HalfEdgeEdge comparisionEdge)
     {
-		Debug.Log("***CheckEdgePlanarity");
-		if (pair != null)
-		{
-			if (initialEdge.IsPlanarWith(pair))
-			{
-				Debug.Log("---- This edge IS planar");
-				//add to list 
-				planarList.Add(pair);
-				planarList.Add(pair.nextEdge);
-				planarList.Add(pair.nextEdge.nextEdge);
-				recursiveFindPlanarTriangles(pair, nonPlanarQueue, planarList);
-			}
-			else
-			{
-				Debug.Log("---- This edge is NOT planar");
-				//add to non planar list
-				nonPlanarQueue.Enqueue(pair);
+		if ( newTriangleEdge == null ) { return; }
 
-			}
+		if (newTriangleEdge.isVisited) { return; }
+
+		edgeCheckCount++;
+
+		if(edgeCheckCount > edgeCheckMax) 
+		{
+			///Debug.LogError("edgeCheckCount > 2000");
+			return; 
 		}
-        else
-        {
-			Debug.Log("---- This edge was found to be null");
+
+		Debug.Log("***CheckEdgePlanarity");
+
+		if (comparisionEdge.IsPlanarWith(newTriangleEdge, transform, true))
+		{
+			newTriangleEdge.MarkTriangleVisited();
+
+			Debug.Log("---- This edge IS planar");
+
+			HalfEdgeEdge currentNextEdge = newTriangleEdge.nextEdge;
+			HalfEdgeEdge currentPrevEdge = newTriangleEdge.nextEdge.nextEdge;
+
+			planarList.Add(newTriangleEdge);
+			planarList.Add(currentNextEdge);
+			planarList.Add(currentPrevEdge);
+
+			Debug.Assert(currentNextEdge != currentPrevEdge);
+
+			CheckEdgePlanarity(currentNextEdge.pairingEdge, nonPlanarQueue, planarList, comparisionEdge);
+			CheckEdgePlanarity(currentPrevEdge.pairingEdge, nonPlanarQueue, planarList, comparisionEdge);
 		}
+		else
+		{
+			Debug.Log("---- This edge is NOT planar");
+			//add to non planar list
+			nonPlanarQueue.Enqueue(newTriangleEdge);
+
+		}
+
+
 	}
 
 	private bool findUnvisitedEdge(out HalfEdgeEdge outEdge)
@@ -382,33 +363,42 @@ public class HalfEdgeFinder : MonoBehaviour
 				
 				Gizmos.color = debugColors[i];
 				Vector3 end = transform.localToWorldMatrix.MultiplyPoint(polygonsFound[i].localCentroid);
+				Gizmos.DrawSphere(end,0.01f);
 
 				//Debug.Log("This polygon has " + polygonsFound[i].polygonEdges.Count + " edges");
 				foreach (HalfEdgeEdge edge in polygonsFound[i].polygonEdges)
                 {
-					Vector3 start = transform.localToWorldMatrix.MultiplyPoint( edge.position);
-					//Debug.Log("start draw " + start.ToString("F2"));
-					//Debug.Log("end draw " + end.ToString("F2"));
-					Gizmos.DrawLine(start, end);
+					//if(edge.pairingEdge == null) { continue; }
+					//if(!edge.IsPlanarWith(edge.pairingEdge,transform))
+     //               {
+						Vector3 start = transform.localToWorldMatrix.MultiplyPoint(edge.position + (polygonsFound[i].localCentroid - edge.position) * 0.1f);
+						Vector3 nextEdge = transform.localToWorldMatrix.MultiplyPoint(edge.nextEdge.position + (polygonsFound[i].localCentroid - edge.nextEdge.position) * 0.01f);
+						//Debug.Log("start draw " + start.ToString("F2"));
+						//Debug.Log("end draw " + end.ToString("F2"));
+
+						//Gizmos.DrawSphere(start, 0.005f);
+						Gizmos.DrawLine(start, end);
+						//Gizmos.DrawLine(start, nextEdge);
+					//}
 				}					
             }
         }
 
 
-		if(currentEdge != null)
-        {
-			Matrix4x4 worldMatrix = Matrix4x4.TRS(transform.position, transform.rotation, transform.localScale);
+		//if(currentEdge != null)
+  //      {
+		//	Matrix4x4 worldMatrix = Matrix4x4.TRS(transform.position, transform.rotation, transform.localScale);
 
-			Vector3 worldEdgePosition = worldMatrix.MultiplyPoint3x4( currentEdge.position);
+		//	Vector3 worldEdgePosition = worldMatrix.MultiplyPoint3x4( currentEdge.position);
 
-			Vector3 worldNextEdgePosition = worldMatrix.MultiplyPoint3x4(currentEdge.nextEdge.position);
+		//	Vector3 worldNextEdgePosition = worldMatrix.MultiplyPoint3x4(currentEdge.nextEdge.position);
 
-			Gizmos.DrawLine(worldEdgePosition, worldNextEdgePosition);
+		//	Gizmos.DrawLine(worldEdgePosition, worldNextEdgePosition);
 
-			Gizmos.color = Color.red;
-			Gizmos.DrawSphere(worldEdgePosition, 0.02f);
-			Gizmos.DrawCube(worldNextEdgePosition, new Vector3(0.02f, 0.02f, 0.02f));
-		}
+		//	Gizmos.color = Color.red;
+		//	Gizmos.DrawSphere(worldEdgePosition, 0.02f);
+		//	Gizmos.DrawCube(worldNextEdgePosition, new Vector3(0.02f, 0.02f, 0.02f));
+		//}
 
 
 
