@@ -7,12 +7,35 @@ using UnityEditor.VersionControl;
 using UnityEngine;
 using UnityEngine.Assertions;
 
-
+public enum PolygonState
+{
+	Unmarked,
+	Above,
+	Under,
+	Split
+}
 public class SplittablePolygon
 {
 	//mostly used for debugging reasons
 	public Vector3 localCentroid;
-	public List<HalfEdgeEdge> polygonEdges;
+	private List<HalfEdgeEdge> polygonEdges;
+	public PolygonState state = PolygonState.Unmarked;
+	public bool visited = false;
+
+	public void SetEdgeList(List<HalfEdgeEdge> newList)
+    {
+		polygonEdges = newList.ToList();
+
+		foreach(var edge in polygonEdges)
+        {
+			edge.parentPolygon = this;
+        }
+	}
+
+	public  List<HalfEdgeEdge> GetEdgeList()
+	{
+		return polygonEdges;
+	}
 
 	public void CalculateLocalCentroid()
     {
@@ -24,6 +47,65 @@ public class SplittablePolygon
 		localCentroid /= polygonEdges.Count;
     }
 
+	public void FindBoundaryEdges(Transform trans)
+    {
+		foreach (HalfEdgeEdge edge in polygonEdges)
+		{
+			bool edgeIsBoundary = true;
+
+			if(edge.pairingEdge != null)
+            {
+				if(edge.IsPlanarWith(edge.pairingEdge, trans))
+                {
+					edgeIsBoundary = false;
+                }
+            }
+
+			edge.isBoundary = edgeIsBoundary;
+
+		}
+
+	}
+
+	public void IsSplitByPlane(Vector3 position, Vector3 normal,Matrix4x4 world)
+	{
+		int vertexAbove = 0;
+		int vertexBelow = 0;
+
+		foreach (HalfEdgeEdge edge in polygonEdges)
+		{
+			Vector3 worldEdgePosition = world.MultiplyPoint(edge.position);
+
+			if(MeshSplitterUtils.IsPointAbovePlane(worldEdgePosition,position,normal))
+            {
+				vertexAbove++;
+			}
+            else
+            {
+				vertexBelow++;
+			}
+
+			bool isSplit = vertexAbove * vertexBelow != 0;
+
+			if(isSplit)
+            {
+				state = PolygonState.Split;
+				break;
+			}
+		}
+
+		if(vertexAbove > vertexBelow)
+        {
+			state = PolygonState.Above;
+		}
+		else if(vertexBelow > vertexAbove)
+        {
+			state = PolygonState.Under;
+		}
+
+
+	}
+
 
 }
 
@@ -31,7 +113,7 @@ public class HalfEdgeFinder : MonoBehaviour
 {
 	public int edgeCheckMax = 5000;
 
-	List<SplittablePolygon> polygonsFound = new List<SplittablePolygon>();
+	public List<SplittablePolygon> polygonsFound = new List<SplittablePolygon>();
 	private Color[] debugColors;
 
     Mesh mesh;
@@ -45,7 +127,7 @@ public class HalfEdgeFinder : MonoBehaviour
 	// Start is called before the first frame update
 	void Start()
     {
-		Debug.unityLogger.logEnabled = false;
+		//Debug.unityLogger.logEnabled = false;
 
 		mesh = GetComponent<MeshFilter>().mesh;
 
@@ -67,7 +149,7 @@ public class HalfEdgeFinder : MonoBehaviour
 
 		}
 
-		Debug.Log("polygonsFound " + polygonsFound.Count );
+		//Debug.Log("polygonsFound " + polygonsFound.Count );
 		currentEdge = edges[0];
 
 	}
@@ -222,7 +304,7 @@ public class HalfEdgeFinder : MonoBehaviour
 
 				while (nonPlanarQueue.Count != 0)
                 {
-					Debug.Log(" nonPlanarQueue.Count " + nonPlanarQueue.Count);
+					//Debug.Log(" nonPlanarQueue.Count " + nonPlanarQueue.Count);
 
 					HalfEdgeEdge firstEdge = nonPlanarQueue.Dequeue();
 
@@ -234,14 +316,15 @@ public class HalfEdgeFinder : MonoBehaviour
 
 					int oldEdgeCheckCount = edgeCheckCount;
 
-					firstEdge.LogTrianglePositions(transform);
+					//firstEdge.LogTrianglePositions(transform);
 
 					recursiveFindPlanarTriangles(firstEdge, 
 						nonPlanarQueue, planarList, firstEdge);
 
 					SplittablePolygon newPolygon = new SplittablePolygon();
-					newPolygon.polygonEdges = planarList.ToList();
 
+					newPolygon.SetEdgeList(planarList);
+					newPolygon.FindBoundaryEdges(transform);
 					newPolygon.CalculateLocalCentroid();
 					polygonsFound.Add(newPolygon);
 
@@ -267,7 +350,7 @@ public class HalfEdgeFinder : MonoBehaviour
 
 		if (initialEdge.isVisited) { return; }
 
-		Debug.Log("This node has not been visited before");
+		//Debug.Log("This node has not been visited before");
 
 		initialEdge.MarkTriangleVisited();
 		
@@ -275,13 +358,13 @@ public class HalfEdgeFinder : MonoBehaviour
 		HalfEdgeEdge pair1, pair2, pair3;
 		initialEdge.GetTrianglePairings(out pair1, out pair2, out pair3);
 
-		Debug.Assert(pair1 != pair2);
+		//Debug.Assert(pair1 != pair2);
 
-		Debug.Log("pair1 Check");
+		//Debug.Log("pair1 Check");
 		CheckEdgePlanarity( pair1, nonPlanarQueue, planarList, comparisionEdge);
-		Debug.Log("pair2 Check");
+		//Debug.Log("pair2 Check");
 		CheckEdgePlanarity( pair2, nonPlanarQueue, planarList, comparisionEdge);
-		Debug.Log("pair2 Check");
+		//Debug.Log("pair2 Check");
 		CheckEdgePlanarity( pair3, nonPlanarQueue, planarList, comparisionEdge);
 
 	
@@ -301,13 +384,9 @@ public class HalfEdgeFinder : MonoBehaviour
 			return; 
 		}
 
-		Debug.Log("***CheckEdgePlanarity");
-
-		if (comparisionEdge.IsPlanarWith(newTriangleEdge, transform, true))
+		if (comparisionEdge.IsPlanarWith(newTriangleEdge, transform))
 		{
 			newTriangleEdge.MarkTriangleVisited();
-
-			Debug.Log("---- This edge IS planar");
 
 			HalfEdgeEdge currentNextEdge = newTriangleEdge.nextEdge;
 			HalfEdgeEdge currentPrevEdge = newTriangleEdge.nextEdge.nextEdge;
@@ -323,7 +402,6 @@ public class HalfEdgeFinder : MonoBehaviour
 		}
 		else
 		{
-			Debug.Log("---- This edge is NOT planar");
 			//add to non planar list
 			nonPlanarQueue.Enqueue(newTriangleEdge);
 
@@ -366,20 +444,15 @@ public class HalfEdgeFinder : MonoBehaviour
 				Gizmos.DrawSphere(end,0.01f);
 
 				//Debug.Log("This polygon has " + polygonsFound[i].polygonEdges.Count + " edges");
-				foreach (HalfEdgeEdge edge in polygonsFound[i].polygonEdges)
+				foreach (HalfEdgeEdge edge in polygonsFound[i].GetEdgeList())
                 {
-					//if(edge.pairingEdge == null) { continue; }
-					//if(!edge.IsPlanarWith(edge.pairingEdge,transform))
-     //               {
-						Vector3 start = transform.localToWorldMatrix.MultiplyPoint(edge.position + (polygonsFound[i].localCentroid - edge.position) * 0.1f);
+					if(edge.isBoundary)
+                    {
+						Vector3 start = transform.localToWorldMatrix.MultiplyPoint(edge.position + (polygonsFound[i].localCentroid - edge.position) * 0.01f);
 						Vector3 nextEdge = transform.localToWorldMatrix.MultiplyPoint(edge.nextEdge.position + (polygonsFound[i].localCentroid - edge.nextEdge.position) * 0.01f);
-						//Debug.Log("start draw " + start.ToString("F2"));
-						//Debug.Log("end draw " + end.ToString("F2"));
 
-						//Gizmos.DrawSphere(start, 0.005f);
-						Gizmos.DrawLine(start, end);
-						//Gizmos.DrawLine(start, nextEdge);
-					//}
+						Gizmos.DrawLine(start, nextEdge);
+					}
 				}					
             }
         }

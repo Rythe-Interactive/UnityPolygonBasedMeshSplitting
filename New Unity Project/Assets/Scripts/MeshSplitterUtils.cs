@@ -4,7 +4,7 @@ using UnityEngine;
 
 public static class MeshSplitterUtils 
 {
-
+    public static readonly float splitterEpsilon = 0.005f;
     public static void CreateNewellPlane(Vector3[] v,out Vector3 normal,out float d)
     {
         Vector3 centroid = new Vector3();
@@ -22,5 +22,18 @@ public static class MeshSplitterUtils
 
         
     }
+
+    static public bool IsPointAbovePlane(Vector3 pointPosition, Vector3 planePosition, Vector3 normal)
+    {
+        return PointDistanceToPlane(pointPosition , planePosition, normal) > 0;
+    }
+
+    static public float PointDistanceToPlane(Vector3 pointPosition, Vector3 planePosition, Vector3 normal)
+    {
+        return Vector3.Dot(pointPosition - planePosition, normal) ;
+    }
+
+
+
 
 }

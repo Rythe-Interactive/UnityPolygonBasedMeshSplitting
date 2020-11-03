@@ -9,8 +9,10 @@ public class HalfEdgeEdge
 	public Vector3 position;
 	public HalfEdgeEdge nextEdge;
 	public HalfEdgeEdge pairingEdge;
+	public SplittablePolygon parentPolygon;
 
 	public bool isVisited = false;
+	public bool isBoundary = false;
 
 	public HalfEdgeEdge(Vector3 pPosition)
 	{
@@ -85,12 +87,6 @@ public class HalfEdgeEdge
 				+ " --- " + t.localToWorldMatrix.MultiplyPoint(otherEdge.nextEdge.position).ToString("F4"));
 
 		}
-
-
-
-
-
-
 
 		return angle < 1.0f;
 
