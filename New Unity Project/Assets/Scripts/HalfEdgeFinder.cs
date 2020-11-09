@@ -22,6 +22,94 @@ public class SplittablePolygon
 	public PolygonState state = PolygonState.Unmarked;
 	public bool visited = false;
 
+	public SplittablePolygon() { }
+
+	public SplittablePolygon CreateSplitPolygonCopy()
+    {
+		SplittablePolygon result = new SplittablePolygon();
+		
+		result.localCentroid = localCentroid;
+		result.state = state;
+		result.visited = visited;
+
+		List<HalfEdgeEdge> newEdgeList = new List<HalfEdgeEdge>();
+		recursiveCopy(null, polygonEdges[0], newEdgeList);
+		result.SetEdgeList(newEdgeList);
+
+		return result;
+    }
+
+	private void recursiveCopy(HalfEdgeEdge copyEdge,HalfEdgeEdge shadowEdge,List<HalfEdgeEdge> newEdgeList)
+    {
+		HalfEdgeEdge shadowEdge2, shadowEdge3;
+		shadowEdge.GetTrianglesEdges(out shadowEdge2, out shadowEdge3);
+		//shadowEdge.MarkTriangleVisited();
+
+
+		HalfEdgeEdge newEdge1 = new HalfEdgeEdge(shadowEdge.position, shadowEdge.isBoundary);
+		HalfEdgeEdge newEdge2 = new HalfEdgeEdge(shadowEdge2.position, shadowEdge2.isBoundary);
+		HalfEdgeEdge newEdge3 = new HalfEdgeEdge(shadowEdge3.position, shadowEdge3.isBoundary);
+
+		HalfEdgeEdge.ConnectIntoTriangle(newEdge1, newEdge2, newEdge3);
+
+		newEdgeList.Add(newEdge1);
+		newEdgeList.Add(newEdge2);
+		newEdgeList.Add(newEdge3);
+
+		if (copyEdge != null)
+		{
+			newEdge1.SetPairing(copyEdge);
+		}
+
+		shadowEdge.copyEdge = newEdge1;
+		shadowEdge2.copyEdge = newEdge2;
+		shadowEdge3.copyEdge = newEdge3;
+
+	
+
+		if (!shadowEdge.isBoundary && shadowEdge.pairingEdge != null)
+		{
+			if (shadowEdge.pairingEdge.copyEdge == null)
+			{
+				recursiveCopy(newEdge1, shadowEdge.pairingEdge, newEdgeList);
+			}
+			else
+			{
+				shadowEdge.pairingEdge.copyEdge.SetPairing(newEdge1);
+			}
+		}
+
+
+
+
+		if (!shadowEdge2.isBoundary && shadowEdge2.pairingEdge != null)
+		{
+			if (shadowEdge2.pairingEdge.copyEdge == null)
+			{
+				recursiveCopy(newEdge2, shadowEdge2.pairingEdge, newEdgeList);
+			}
+			else
+			{
+				shadowEdge2.pairingEdge.copyEdge.SetPairing(newEdge2);
+			}
+		}
+
+		if (!shadowEdge3.isBoundary && shadowEdge3.pairingEdge != null)
+		{
+			if (shadowEdge3.pairingEdge.copyEdge == null)
+			{
+				recursiveCopy(newEdge3, shadowEdge3.pairingEdge, newEdgeList);
+			}
+			else
+			{
+				shadowEdge3.pairingEdge.copyEdge.SetPairing(newEdge3);
+			}
+		}
+
+
+
+	}
+
 	public void SetEdgeList(List<HalfEdgeEdge> newList)
     {
 		polygonEdges = newList.ToList();
@@ -46,6 +134,14 @@ public class SplittablePolygon
 
 		localCentroid /= polygonEdges.Count;
     }
+
+	public void resetVisited()
+	{
+		foreach (HalfEdgeEdge edge in polygonEdges)
+		{
+			edge.isVisited = false;
+		}
+	}
 
 	public void FindBoundaryEdges(Transform trans)
     {
@@ -72,6 +168,7 @@ public class SplittablePolygon
 		int vertexAbove = 0;
 		int vertexBelow = 0;
 
+
 		foreach (HalfEdgeEdge edge in polygonEdges)
 		{
 			Vector3 worldEdgePosition = world.MultiplyPoint(edge.position);
@@ -90,7 +187,7 @@ public class SplittablePolygon
 			if(isSplit)
             {
 				state = PolygonState.Split;
-				break;
+				return;
 			}
 		}
 
@@ -324,6 +421,7 @@ public class HalfEdgeFinder : MonoBehaviour
 					SplittablePolygon newPolygon = new SplittablePolygon();
 
 					newPolygon.SetEdgeList(planarList);
+					
 					newPolygon.FindBoundaryEdges(transform);
 					newPolygon.CalculateLocalCentroid();
 					polygonsFound.Add(newPolygon);
@@ -341,6 +439,11 @@ public class HalfEdgeFinder : MonoBehaviour
 
 		}
 
+
+		foreach(var polygon in polygonsFound)
+        {
+			polygon.resetVisited();
+        }
 			
     }
 
@@ -450,6 +553,11 @@ public class HalfEdgeFinder : MonoBehaviour
                     {
 						Vector3 start = transform.localToWorldMatrix.MultiplyPoint(edge.position + (polygonsFound[i].localCentroid - edge.position) * 0.01f);
 						Vector3 nextEdge = transform.localToWorldMatrix.MultiplyPoint(edge.nextEdge.position + (polygonsFound[i].localCentroid - edge.nextEdge.position) * 0.01f);
+
+						//if(edge.pairingEdge != null)
+      //                  {
+						//	Gizmos.DrawSphere(transform.localToWorldMatrix.MultiplyPoint(edge.GetEdgeLocalCentroid()), 0.01f);
+						//}
 
 						Gizmos.DrawLine(start, nextEdge);
 					}

@@ -2,21 +2,162 @@
 using System.Collections.Generic;
 using UnityEngine;
 
+public enum EdgeSplitState
+{
+	Split,
+	Above,
+	Below
+}
+
 public class HalfEdgeEdge
 {
-	static Vector3[] v = new Vector3[4];
-
 	public Vector3 position;
 	public HalfEdgeEdge nextEdge;
 	public HalfEdgeEdge pairingEdge;
+	public HalfEdgeEdge copyEdge = null;
+
 	public SplittablePolygon parentPolygon;
 
 	public bool isVisited = false;
 	public bool isBoundary = false;
 
-	public HalfEdgeEdge(Vector3 pPosition)
+	public HalfEdgeEdge(Vector3 pPosition,bool isBoundary = false)
 	{
 		position = pPosition;
+		this.isBoundary = isBoundary;
+	}
+
+	public static void ConnectIntoTriangle(HalfEdgeEdge first,HalfEdgeEdge second,HalfEdgeEdge third)
+    {
+		first.nextEdge = second;
+		second.nextEdge = third;
+		third.nextEdge = first;
+    }
+
+	public void SetPairing(HalfEdgeEdge newPair)
+    {
+		pairingEdge = newPair;
+		newPair.pairingEdge = this;
+    }
+
+	public Vector3 GetEdgeLocalCentroid()
+	{
+		return (position + nextEdge.position) / 2.0f;
+	}
+
+	public Vector3 GetLocalEdgeDirection()
+	{
+		return nextEdge.position - position;
+	}
+
+	public bool isEdgePartlyAbovePlane(Transform trans, Vector3 planePosition, Vector3 planeNormal)
+    {
+		
+		Vector3 currentWorldPos = trans.localToWorldMatrix.MultiplyPoint(position);
+		Vector3 nextWorldPos = trans.localToWorldMatrix.MultiplyPoint(nextEdge.position);
+
+		float currentDistFromPlane = MeshSplitterUtils.PointDistanceToPlane(currentWorldPos, planePosition, planeNormal);
+		float nextDistFromPlane = MeshSplitterUtils.PointDistanceToPlane(nextWorldPos, planePosition, planeNormal);
+
+		bool currentAbovePlane = currentDistFromPlane > MeshSplitterUtils.splitterAbovePlaneEpsilon;
+		bool nextAbovePlane = nextDistFromPlane > MeshSplitterUtils.splitterAbovePlaneEpsilon;
+
+
+		return currentAbovePlane || nextAbovePlane;
+	}
+
+	public bool isEdgePartlyBelowPlane(Transform trans, Vector3 planePosition, Vector3 planeNormal)
+	{
+
+		Vector3 currentWorldPos = trans.localToWorldMatrix.MultiplyPoint(position);
+		Vector3 nextWorldPos = trans.localToWorldMatrix.MultiplyPoint(nextEdge.position);
+
+		float currentDistFromPlane = MeshSplitterUtils.PointDistanceToPlane(currentWorldPos, planePosition, planeNormal);
+		float nextDistFromPlane = MeshSplitterUtils.PointDistanceToPlane(nextWorldPos, planePosition, planeNormal);
+
+		bool currentAbovePlane = currentDistFromPlane < -MeshSplitterUtils.splitterAbovePlaneEpsilon;
+		bool nextAbovePlane = nextDistFromPlane < -MeshSplitterUtils.splitterAbovePlaneEpsilon;
+
+
+		return currentAbovePlane || nextAbovePlane;
+	}
+
+
+
+	public bool isSplitByPlane(Transform trans,Vector3 planePosition,Vector3 planeNormal)
+    {
+		int x = 0;
+		int y = 0;
+
+		Vector3 currentWorldPos = trans.localToWorldMatrix.MultiplyPoint(position);
+		Vector3 nextWorldPos = trans.localToWorldMatrix.MultiplyPoint(nextEdge.position);
+
+		float currentDistFromPlane = MeshSplitterUtils.PointDistanceToPlane(currentWorldPos, planePosition, planeNormal);
+		float nextDistFromPlane = MeshSplitterUtils.PointDistanceToPlane(nextWorldPos, planePosition, planeNormal);
+
+		if(currentDistFromPlane > MeshSplitterUtils.splitterEpsilon)
+        {
+			x = 1;
+        }
+		else if (currentDistFromPlane < -MeshSplitterUtils.splitterEpsilon)
+		{
+			x = -1;
+		}
+
+
+		if (nextDistFromPlane > MeshSplitterUtils.splitterEpsilon)
+		{
+			y = 1;
+		}
+		else if (nextDistFromPlane < -MeshSplitterUtils.splitterEpsilon)
+		{
+			y = -1;
+		}
+
+		int edgeSplitState = x * y;
+
+
+		return edgeSplitState < 0;
+
+
+	}
+
+	public bool isSplitByPlaneNonRobust(Transform trans, Vector3 planePosition, Vector3 planeNormal)
+	{
+		int x = 0;
+		int y = 0;
+
+		Vector3 currentWorldPos = trans.localToWorldMatrix.MultiplyPoint(position);
+		Vector3 nextWorldPos = trans.localToWorldMatrix.MultiplyPoint(nextEdge.position);
+
+		float currentDistFromPlane = MeshSplitterUtils.PointDistanceToPlane(currentWorldPos, planePosition, planeNormal);
+		float nextDistFromPlane = MeshSplitterUtils.PointDistanceToPlane(nextWorldPos, planePosition, planeNormal);
+
+		if (currentDistFromPlane > 0)
+		{
+			x = 1;
+		}
+		else if (currentDistFromPlane < 0)
+		{
+			x = -1;
+		}
+
+
+		if (nextDistFromPlane > 0)
+		{
+			y = 1;
+		}
+		else if (nextDistFromPlane < 0)
+		{
+			y = -1;
+		}
+
+		int edgeSplitState = x * y;
+
+
+		return edgeSplitState < 0;
+
+
 	}
 
 	public void MarkTriangleVisited()
@@ -29,11 +170,26 @@ public class HalfEdgeEdge
 		prev.isVisited = true;
 	}
 
+	public void populateListWithTrianglePositions(List<Vector3> listToPopulate)
+    {
+		HalfEdgeEdge outNextEdge, outPrevEdge;
+		GetTrianglesEdges(out outNextEdge, out outPrevEdge);
+
+		listToPopulate.Add(position);
+		listToPopulate.Add(outNextEdge.position);
+		listToPopulate.Add(outPrevEdge.position);
+	}
+
 	public void GetTrianglesEdges(out HalfEdgeEdge outNextEdge, out HalfEdgeEdge outPrevEdge)
 	{
 		outNextEdge = nextEdge;
 		outPrevEdge = nextEdge.nextEdge;
 	}
+
+	public Vector3 GetLocalTriangleCentroid()
+    {
+		return (position + nextEdge.position + nextEdge.nextEdge.position) / 3.0f;
+    }
 
 	public void GetTrianglePairings(out HalfEdgeEdge outSelfPair, out HalfEdgeEdge outNextPair, out HalfEdgeEdge outPrevPair)
 	{
@@ -57,9 +213,9 @@ public class HalfEdgeEdge
 
 	public Vector3 GetTriangleNormal(Transform t)
 	{
-		Vector3 worldNextEdge = t.localToWorldMatrix * nextEdge.position;
-		Vector3 worldPosition= t.localToWorldMatrix * position;
-		Vector3 worldPrevEdge = t.localToWorldMatrix * nextEdge.nextEdge.position;
+		Vector3 worldNextEdge = t.localToWorldMatrix.MultiplyPoint( nextEdge.position);
+		Vector3 worldPosition= t.localToWorldMatrix.MultiplyPoint( position);
+		Vector3 worldPrevEdge = t.localToWorldMatrix.MultiplyPoint(nextEdge.nextEdge.position);
 
 		return Vector3.Cross(worldNextEdge - worldPosition, worldPrevEdge - worldPosition).normalized;
 
