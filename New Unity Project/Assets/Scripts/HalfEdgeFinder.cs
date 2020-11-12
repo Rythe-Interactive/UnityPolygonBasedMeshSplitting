@@ -543,7 +543,9 @@ public class HalfEdgeFinder : MonoBehaviour
             {
 				
 				Gizmos.color = debugColors[i];
-				Vector3 end = transform.localToWorldMatrix.MultiplyPoint(polygonsFound[i].localCentroid);
+				Vector3 end = transform.localToWorldMatrix.MultiplyPoint(polygonsFound[i].localCentroid );
+
+				//end += new Vector3(UnityEngine.Random.Range(0, 0.01f), UnityEngine.Random.Range(0, 0.01f), 0);
 				Gizmos.DrawSphere(end,0.01f);
 
 				//Debug.Log("This polygon has " + polygonsFound[i].polygonEdges.Count + " edges");

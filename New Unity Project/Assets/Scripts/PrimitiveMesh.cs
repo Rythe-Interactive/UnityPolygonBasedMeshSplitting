@@ -44,6 +44,8 @@ public class PrimitiveMesh
 
         foreach(var polygon in splitPolygon)
         {
+            if(polygon.GetEdgeList().Count == 0) { continue; }
+
             recursiveAddVertex(polygon.GetEdgeList()[0],vertices);
 
             polygon.resetVisited();

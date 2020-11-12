@@ -1,5 +1,6 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
+using UnityEditor;
 using UnityEngine;
 
 public enum EdgeSplitState
@@ -21,24 +22,24 @@ public class HalfEdgeEdge
 	public bool isVisited = false;
 	public bool isBoundary = false;
 
-	public HalfEdgeEdge(Vector3 pPosition,bool isBoundary = false)
+	public HalfEdgeEdge(Vector3 pPosition, bool isBoundary = false)
 	{
 		position = pPosition;
 		this.isBoundary = isBoundary;
 	}
 
-	public static void ConnectIntoTriangle(HalfEdgeEdge first,HalfEdgeEdge second,HalfEdgeEdge third)
-    {
+	public static void ConnectIntoTriangle(HalfEdgeEdge first, HalfEdgeEdge second, HalfEdgeEdge third)
+	{
 		first.nextEdge = second;
 		second.nextEdge = third;
 		third.nextEdge = first;
-    }
+	}
 
 	public void SetPairing(HalfEdgeEdge newPair)
-    {
+	{
 		pairingEdge = newPair;
 		newPair.pairingEdge = this;
-    }
+	}
 
 	public Vector3 GetEdgeLocalCentroid()
 	{
@@ -50,9 +51,22 @@ public class HalfEdgeEdge
 		return nextEdge.position - position;
 	}
 
-	public bool isEdgePartlyAbovePlane(Transform trans, Vector3 planePosition, Vector3 planeNormal)
+	public Vector3 edgeToPlaneIntersection(Transform transform,Vector3 planePosition,Vector3 planeNormal)
     {
-		
+		Vector3 startCurrentEdge
+			   = transform.localToWorldMatrix.MultiplyPoint(position);
+		Vector3 startNextEdge
+			= transform.localToWorldMatrix.MultiplyPoint(nextEdge.position);
+
+		Vector3 startIntersection;
+		MeshSplitterUtils.LineToPlaneIntersection(startCurrentEdge, startNextEdge, planePosition, planeNormal, out startIntersection);
+
+		return startIntersection;
+	}
+
+	public bool isEdgePartlyAbovePlane(Transform trans, Vector3 planePosition, Vector3 planeNormal)
+	{
+
 		Vector3 currentWorldPos = trans.localToWorldMatrix.MultiplyPoint(position);
 		Vector3 nextWorldPos = trans.localToWorldMatrix.MultiplyPoint(nextEdge.position);
 
@@ -61,6 +75,12 @@ public class HalfEdgeEdge
 
 		bool currentAbovePlane = currentDistFromPlane > MeshSplitterUtils.splitterAbovePlaneEpsilon;
 		bool nextAbovePlane = nextDistFromPlane > MeshSplitterUtils.splitterAbovePlaneEpsilon;
+
+		//Debug.Log(" *** {isEdgePartlyAbovePlane} " 
+		//	+ currentWorldPos.ToString("F2")
+		//	+ "," + nextWorldPos.ToString("F2"));
+
+		//Debug.Log("currentAbovePlane " + currentAbovePlane + ",nextAbovePlane " + nextAbovePlane);
 
 
 		return currentAbovePlane || nextAbovePlane;
@@ -75,13 +95,35 @@ public class HalfEdgeEdge
 		float currentDistFromPlane = MeshSplitterUtils.PointDistanceToPlane(currentWorldPos, planePosition, planeNormal);
 		float nextDistFromPlane = MeshSplitterUtils.PointDistanceToPlane(nextWorldPos, planePosition, planeNormal);
 
-		bool currentAbovePlane = currentDistFromPlane < -MeshSplitterUtils.splitterAbovePlaneEpsilon;
-		bool nextAbovePlane = nextDistFromPlane < -MeshSplitterUtils.splitterAbovePlaneEpsilon;
+		bool currentBelowPlane = currentDistFromPlane < -MeshSplitterUtils.splitterAbovePlaneEpsilon;
+		bool nextBelowPlane = nextDistFromPlane < -MeshSplitterUtils.splitterAbovePlaneEpsilon;
 
+		//Debug.Log("*** isEdgePartlyBelowPlane" + currentWorldPos.ToString("F2")
+		//	+ "," + nextWorldPos.ToString("F2"));
 
-		return currentAbovePlane || nextAbovePlane;
+		//Debug.Log("currentBelowPlane " + currentBelowPlane + "," + currentDistFromPlane);
+		//Debug.Log("nextBelowPlane " + nextBelowPlane + "," + nextDistFromPlane);
+
+		return currentBelowPlane || nextBelowPlane;
 	}
 
+	public bool isVertexOnPlane(Transform trans, Vector3 planePosition, Vector3 planeNormal)
+	{
+		Vector3 currentWorldPos = trans.localToWorldMatrix.MultiplyPoint(position);
+		Vector3 nextWorldPos = trans.localToWorldMatrix.MultiplyPoint(nextEdge.position);
+
+		float currentDistFromPlane = MeshSplitterUtils.PointDistanceToPlane(currentWorldPos, planePosition, planeNormal);
+		float nextDistFromPlane = MeshSplitterUtils.PointDistanceToPlane(nextWorldPos, planePosition, planeNormal);
+
+		bool currentOnPlane = currentDistFromPlane > -MeshSplitterUtils.splitterAbovePlaneEpsilon
+			&& currentDistFromPlane < MeshSplitterUtils.splitterAbovePlaneEpsilon;
+
+		bool nextOnPlane = currentDistFromPlane > -MeshSplitterUtils.splitterAbovePlaneEpsilon
+			&& currentDistFromPlane < MeshSplitterUtils.splitterAbovePlaneEpsilon;
+
+		return currentOnPlane || nextOnPlane;
+
+	}
 
 
 	public bool isSplitByPlane(Transform trans,Vector3 planePosition,Vector3 planeNormal)

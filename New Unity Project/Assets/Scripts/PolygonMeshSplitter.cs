@@ -50,6 +50,7 @@ public class PolygonMeshSplitter : MonoBehaviour
     HalfEdgeFinder edgeFinder;
 
     public GameObject splitObject;
+    //public GameObject debugPlane;
 
     private void Start()
     {
@@ -65,7 +66,7 @@ public class PolygonMeshSplitter : MonoBehaviour
         }
     }
 
-    void CopySplitPolygons(List<SplittablePolygon> splitPolygons, PolygonState connectState)
+    List<SplittablePolygon> CopySplitPolygons(List<SplittablePolygon> splitPolygons, PolygonState connectState)
     {
         List<SplittablePolygon> tempList = new List<SplittablePolygon>();
         tempList.AddRange(splitPolygons);
@@ -114,11 +115,16 @@ public class PolygonMeshSplitter : MonoBehaviour
 
         foreach (SplittablePolygon pol in tempList)
         {
+            pol.resetVisited();
             foreach (HalfEdgeEdge edge in pol.GetEdgeList())
             {
                 edge.copyEdge = null;
             }
         }
+
+        return tempList;
+
+
     }
 
     void recursiveCopy()
@@ -135,6 +141,9 @@ public class PolygonMeshSplitter : MonoBehaviour
 
     public int cutCountDebugAt = 1;
     public int categorizeCountDebugAt = 0;
+
+     int addCount = 0;
+    public int reqestAdd = 0;
 
     void CutAt(Vector3 cutPlanePosition,Vector3 cutPlaneNormal)
     {
@@ -187,63 +196,150 @@ public class PolygonMeshSplitter : MonoBehaviour
                 }
 
                 //DebugDrawer.DrawSphere(
-                //    transform.localToWorldMatrix.MultiplyPoint(polygon.localCentroid) + cutPlaneNormal * 0.05f * mult, 0.1f, Color.red); 
+                //    transform.localToWorldMatrix.MultiplyPoint(polygon.localCentroid) + cutPlaneNormal * 0.05f * mult, 0.1f, Color.red);
             }
 
-            CopySplitPolygons(splitPgn, splitState);
+            //SplittablePolygon originalSplit = CopySplitPolygons(splitPgn, splitState);
 
-
-
-
-            //do island detection on splitPgn
             List<List<SplittablePolygon>> slicingIslandList = new List<List<SplittablePolygon>>();
+            //do island detection on splitPgn
+            List<List<SplittablePolygon>> originalSlicingIsland = new List<List<SplittablePolygon>>();
          
             DetectSplitIslands(slicingIslandList, splitPgn);
 
             //--------------------Slice intersecting polygons ---------------------------------------------//
-            Debug.Log("slicingIslandList  " + slicingIslandList.Count);
             foreach (List<SplittablePolygon> polygonIsland in slicingIslandList)
             {
-                Debug.Log("polygonIsland has count  " + polygonIsland.Count);
+                List<SplittablePolygon> originalIsland = CopySplitPolygons(polygonIsland, splitState);
+
                 foreach(SplittablePolygon pgn in polygonIsland)
                 {
                     pgn.visited = false;
                     categorizeEdges(pgn, splitState, cutPlanePosition, cutPlaneNormal);
                 }
+
+                originalSlicingIsland.Add(originalIsland);
             }
 
-            
-
-
-
-            foreach (List<SplittablePolygon> polygonIsland in slicingIslandList)
+            foreach (List<SplittablePolygon> polygonIsland in originalSlicingIsland)
             {
                 //Debug.Log("polygonIsland count " + polygonIsland.Count);
                 foreach (SplittablePolygon pgn in polygonIsland)
                 {
+                    pgn.visited = false;
                     pgn.resetVisited();
                 }
             }
 
-            foreach (var pgn in splitPgn)
-            {
-                pgn.visited = false;
-            }
 
+            bool requestReached = false;
 
                 //Put split polygons in a single list
             foreach (var polygonList in slicingIslandList)
             {
+                foreach(var pol in polygonList)
+                {
+                    pol.resetVisited();
+                }
+
                 unSplitPgn.AddRange(polygonList);
             }
 
-            PrimitiveMesh splitMesh = new PrimitiveMesh(unSplitPgn, new List<PrimitiveTriangle>());
-            splitMesh.createNewGameObject(gameObject);
+            {
+                PrimitiveMesh splitMesh = new PrimitiveMesh(unSplitPgn, new List<PrimitiveTriangle>());
+                splitMesh.createNewGameObject(gameObject);
+            }
+
+            if(requestReached) { return; }
+
+            //break;
+            cutCount++;
+
+            if (splitState == PolygonState.Above)
+            {
+                splitState = PolygonState.Under;
+            }
+            else if (splitState == PolygonState.Under)
+            {
+                splitState = PolygonState.Above;
+            }
+
+            if(cutCount == 1)
+            {
+                Debug.Log("NEXT 2");
+            }
+
+            foreach (List<SplittablePolygon> polygonIsland in originalSlicingIsland)
+            {
+                //break;
+                Debug.Log("Slicing islands");
+                cutCount++;
+                categorizeCount = 0;
+                List<SplittablePolygon> otherUnSplitPgn = new List<SplittablePolygon>();
+                List<SplittablePolygon> otherSplitPgn = new List<SplittablePolygon>();
+
+    
+
+                recursiveDetectPolygonIsland(polygonIsland[0], splitState, otherSplitPgn, otherUnSplitPgn);
+
+                Debug.Log("Cutcount " + cutCount);
+                foreach (var pgn in otherUnSplitPgn)
+                {
+                    Vector3 centroid = transform.localToWorldMatrix.MultiplyPoint(pgn.localCentroid);
+                    DebugDrawer.DrawSphere(centroid, 0.1f, Color.black);
+                }
+
+                CopySplitPolygons(otherSplitPgn, splitState);
+
+                foreach (var pgn in otherSplitPgn)
+                {
+                    pgn.visited = false;
+                    categorizeEdges(pgn, splitState, cutPlanePosition, cutPlaneNormal);
+                }
+
+                foreach (var pgn in otherSplitPgn)
+                {
+                    pgn.visited = false;
+                    pgn.resetVisited();
+                }
+
+
+                otherUnSplitPgn.AddRange(otherSplitPgn);
+                PrimitiveMesh newIslandMesh = new PrimitiveMesh(otherUnSplitPgn, new List<PrimitiveTriangle>());
+
+                newIslandMesh.createNewGameObject(gameObject);
+
+                foreach (var pgn in otherUnSplitPgn)
+                {
+                    pgn.visited = true;
+                }
+                
+            }
+
+           
+
+
+            // recursiveDetectPolygonIsland(originalSplit, splitState,
+            //otherSplitPgn, otherUnSplitPgn);
+
+            // foreach(var pol in otherUnSplitPgn)
+            // {
+            //     Vector3 worldUnSplit = transform.localToWorldMatrix.MultiplyPoint(pol.localCentroid);
+            //     pol.visited = false;
+            //     pol.resetVisited();
+            //     DebugDrawer.DrawSphere(worldUnSplit, 0.1f, Color.cyan);
+            // }
+
+            // foreach (var pol in otherSplitPgn)
+            // {
+            //     Vector3 worldSplit = transform.localToWorldMatrix.MultiplyPoint(pol.localCentroid);
+            //     pol.visited = false;
+            //     pol.resetVisited();
+            //     DebugDrawer.DrawSphere(worldSplit, 0.1f, Color.green);
+            // }
 
 
             foundUnvisitedPolygon = FindFirstUnvisitedPolygonWithExcluded(polygons, out initialSplit, PolygonState.Split);
-            //break;
-            cutCount++;
         }
 
         Debug.Log("Final Cut count " + cutCount);
@@ -254,16 +350,20 @@ public class PolygonMeshSplitter : MonoBehaviour
 
 
 
-    void categorizeEdges(SplittablePolygon pgn, PolygonState splitState,Vector3 planePosition,Vector3 planeNormal)
+    void categorizeEdges(SplittablePolygon pgn, PolygonState splitState, Vector3 planePosition, Vector3 planeNormal)
     {
-        Debug.Log("categorizeEdges");
+        if(pgn.GetEdgeList().Count == 0) { return; }
+
+        //if(cutCount == 3)
+        //{
+        //    Debug.Log("Test 3");
+        //    Vector3 centroid = transform.localToWorldMatrix.MultiplyPoint(pgn.localCentroid);
+        //    DebugDrawer.DrawSphere(centroid, 0.1f, Color.blue);
+        //}
+        //Debug.Log("categorizeEdges");
         pgn.resetVisited();
-        //Split Edge boundaries
 
-        //EffectedTriangles
         List<HalfEdgeEdge> effectedEdges = new List<HalfEdgeEdge>();
-
-        //non effectedTriangles
         List<HalfEdgeEdge> nonEffectedEdges = new List<HalfEdgeEdge>();
 
         bool shouldBeAbove = splitState == PolygonState.Above;
@@ -272,7 +372,7 @@ public class PolygonMeshSplitter : MonoBehaviour
         recrusiveCheckTriangleSplitState(pgn.GetEdgeList()[0], planePosition, planeNormal,
             effectedEdges, nonEffectedEdges, shouldBeAbove);
 
-        Debug.Log(" effectedEdges " + effectedEdges.Count);
+
 
 
         foreach (var edge in nonEffectedEdges)
@@ -283,31 +383,69 @@ public class PolygonMeshSplitter : MonoBehaviour
         List<HalfEdgeEdge> effectedBoundaryEdges = new List<HalfEdgeEdge>();
         List<HalfEdgeEdge> splitEffectedBoundaryEdges = new List<HalfEdgeEdge>();
 
+
+        if (categorizeCount == categorizeCountDebugAt && cutCount == cutCountDebugAt)
+        {
+            Debug.Log(" effectedEdges " + effectedEdges.Count);
+            Debug.Log("------------------foreach (var edge in effectedEdges");
+            Debug.Log("splitState " + splitState);
+
+        }
+
         foreach (var edge in effectedEdges)
         {
             bool isVisitedBoundary = edge.isBoundary && edge.isVisited;
             bool isVisitedNonBoundary = !edge.isBoundary && !edge.pairingEdge.isVisited;
             bool edgeAtCorrectSpot = shouldBeAbove ?
-                edge.isEdgePartlyAbovePlane(transform, planePosition, planeNormal) : edge.isEdgePartlyBelowPlane(transform, planePosition, planeNormal);
+                edge.isEdgePartlyAbovePlane(transform, planePosition, planeNormal)
+                : edge.isEdgePartlyBelowPlane(transform, planePosition, planeNormal);
+
+            if (categorizeCount == categorizeCountDebugAt && cutCount == cutCountDebugAt)
+            {
+                //Debug.Log("polygon same ? " + (edge.pairingEdge.parentPolygon == edge.parentPolygon));
+
+                //Debug.Log("isVisitedBoundary? " + isVisitedBoundary
+                //    + ",isVisitedNonBoundary? " + isVisitedNonBoundary
+                //    + ",edgeAtCorrectSpot" + edgeAtCorrectSpot);
+
+                //Debug.Log("Result " + ((isVisitedBoundary || isVisitedNonBoundary) && edgeAtCorrectSpot));
+            }
+
 
             if ((isVisitedBoundary || isVisitedNonBoundary) && edgeAtCorrectSpot)
             {
-                //bool isSplit = edge.isSplitByPlaneNonRobust(transform, planePosition, planeNormal);
+                bool isSplit = edge.isSplitByPlaneNonRobust(transform, planePosition, planeNormal);
+                bool isOnPlane = edge.isVertexOnPlane(transform, planePosition, planeNormal);
 
-                //if(isSplit)
-                //{
-                //    effectedBoundaryEdges.Add(edge);
-                //}
-                //else
-                //{
-                //    splitEffectedBoundaryEdges.Add(edge);
-                //}
+                if (isSplit || isOnPlane)
+                {
+                    splitEffectedBoundaryEdges.Add(edge);
 
-                effectedBoundaryEdges.Add(edge);
+                    //Debug.Log("splitEffectedBoundaryEdges " + transform.localToWorldMatrix.MultiplyPoint(edge.position));
+                }
+                else
+                {
+                    effectedBoundaryEdges.Add(edge);
+
+                    //Debug.Log("effectedBoundaryEdges " + transform.localToWorldMatrix.MultiplyPoint(edge.position));
+                }
+
+                //effectedBoundaryEdges.Add(edge);
             }
         }
 
-        Vector3 polygonNormal = effectedBoundaryEdges[0].GetTriangleNormal(transform);
+        if (categorizeCount == categorizeCountDebugAt && cutCount == cutCountDebugAt)
+        {
+            Debug.Log("------END------------foreach (var edge in effectedEdges");
+            Debug.Log("splitEffectedBoundaryEdges " + splitEffectedBoundaryEdges.Count);
+            Debug.Log("effectedBoundaryEdges " + effectedBoundaryEdges.Count);
+            Debug.Log("effectedEdges " + effectedEdges.Count);
+
+        }
+
+
+
+        Vector3 polygonNormal = pgn.GetEdgeList()[0].GetTriangleNormal(transform);
         Vector3 normalCrossPolygonNormal = Vector3.Cross(planeNormal
             , polygonNormal);
         Vector3 tangentToPolygonNormal = Vector3.Cross(polygonNormal, normalCrossPolygonNormal).normalized;
@@ -319,7 +457,6 @@ public class PolygonMeshSplitter : MonoBehaviour
         foreach (var edge in effectedEdges)
         {
             worldAverageEffectedEdgesCentroid += edge.position;
-
         }
 
         worldAverageEffectedEdgesCentroid /= (float)effectedEdges.Count;
@@ -329,48 +466,175 @@ public class PolygonMeshSplitter : MonoBehaviour
 
 
 
-        //project av
 
-        //float mult = shouldBeAbove ? -1 : 1;
-        //Vector3 worldSupport;
-        //Vector3 supportDirection = tangentToPolygonNormal * mult;
-        //MeshSplitterUtils.GetSupportPoint(transform, effectedBoundaryEdges, worldAverageEffectedEdgesCentroid
-        //    , supportDirection, out worldSupport);
+        int trianglesToUse = splitEffectedBoundaryEdges.Count + effectedBoundaryEdges.Count;
 
+        EdgeComparer splitComparer = new EdgeComparer(transform, normalCrossPolygonNormal, worldAverageEffectedEdgesCentroid);
 
-        //float tSupportPoint = MeshSplitterUtils.FindLineToPlaneInterpolant
-        //    (planePosition, planeNormal, worldSupport, -supportDirection);
+        if (trianglesToUse == 2)
+        {
+            List<HalfEdgeEdge> splitEdges = new List<HalfEdgeEdge>();
+            splitEdges.AddRange(splitEffectedBoundaryEdges);
+            splitEdges.AddRange(effectedBoundaryEdges);
 
+            //EdgeComparer triangleComparer = new EdgeComparer(transform, normalCrossPolygonNormal, worldAverageEffectedEdgesCentroid);
 
-        //MeshSplitterUtils.LineToPlaneIntersection
-        //    (worldAverageEffectedEdgesCentroid,
-        //    worldAverageEffectedEdgesCentroid + tangentToPolygonNormal,
-        //    planePosition,
-        //    planeNormal,
-        //    out worldAverageEffectedEdgesCentroid);
+            splitEdges.Sort(splitComparer);
 
-        //worldAverageEffectedEdgesCentroid += supportDirection * tSupportPoint;
+            int t = 0;
+            int tmaxI = splitEdges.Count;
+            foreach (var edge in splitEdges)
+            {
 
 
+                if (categorizeCount == categorizeCountDebugAt && cutCount == cutCountDebugAt)
+                {
+                    Vector3 worldEdgePosition =
+                    transform.localToWorldMatrix.MultiplyPoint(edge.position);
 
-        Debug.Log(" effectedBoundaryEdges " + effectedBoundaryEdges.Count);
+                    Vector3 worldNextEdgePosition =
+                        transform.localToWorldMatrix.MultiplyPoint(edge.nextEdge.position);
 
-        pgn.GetEdgeList().Clear();
+                    Vector3 triangleCentroid =
+                        transform.localToWorldMatrix.MultiplyPoint(edge.GetLocalTriangleCentroid());
 
-        pgn.GetEdgeList().AddRange(nonEffectedEdges);
-        //pgn.GetEdgeList().AddRange(effectedEdges);
+                    Vector3 edgeToCentroid = (triangleCentroid - worldEdgePosition) * 0.1f;
+                    Vector3 nextEdgeToCentroid = (triangleCentroid - worldNextEdgePosition) * 0.1f;
+
+                    float c = 1 * (float)t / tmaxI;
+                    DebugDrawer.DrawCircleLine(
+                        worldEdgePosition + edgeToCentroid,
+                        worldNextEdgePosition + nextEdgeToCentroid,
+                        0.001f, 20, new Color(0, 0, c));
+                    t++;
+                }
+            }
 
 
-        //get tangent normals 
+            HalfEdgeEdge firstSplit = splitEdges[0];
+            HalfEdgeEdge secondSplit = splitEdges[1];
+
+            Vector3 worldStartEdgePosition =
+                transform.localToWorldMatrix.MultiplyPoint(firstSplit.position);
+
+            bool startFromOutside =
+                shouldBeAbove == MeshSplitterUtils.IsPointAbovePlane(worldStartEdgePosition, planePosition, planeNormal);
+
+            Vector3 start = firstSplit.edgeToPlaneIntersection(transform, planePosition, planeNormal);
+            Vector3 end = secondSplit.edgeToPlaneIntersection(transform, planePosition, planeNormal);
+
+            bool FirstOnPlane = firstSplit.isVertexOnPlane(transform, planePosition, planeNormal);
+
+            if (FirstOnPlane)
+            {
+                Vector3 worldEnd = transform.localToWorldMatrix.MultiplyPoint(secondSplit.position);
+
+                startFromOutside = shouldBeAbove == !MeshSplitterUtils.IsPointAbovePlane(worldEnd, planePosition, planeNormal);
+
+            }
 
 
-        EdgeComparer comparer = new EdgeComparer(transform, normalCrossPolygonNormal, worldAverageEffectedEdgesCentroid);
+            HalfEdgeEdge intersectionEdge;
 
-        //splitEffectedBoundaryEdges.Sort(comparer);
-        effectedBoundaryEdges.Sort(comparer);
+            if (categorizeCount == categorizeCountDebugAt && cutCount == cutCountDebugAt)
+            {
+                DebugDrawer.DrawSphere(
+                transform.localToWorldMatrix.MultiplyPoint(firstSplit.position), 0.02f, Color.cyan);
+
+                DebugDrawer.DrawSphere(
+                transform.localToWorldMatrix.MultiplyPoint(secondSplit.position), 0.02f, Color.grey);
+            }
+
+                HandleTriangleSplit
+                (startFromOutside,
+                firstSplit,
+                secondSplit,
+                start,
+                end,
+                out intersectionEdge);
 
 
 
+            pgn.GetEdgeList().Clear();
+            pgn.GetEdgeList().AddRange(nonEffectedEdges);
+            pgn.GetEdgeList().AddRange(splitEffectedBoundaryEdges);
+            pgn.GetEdgeList().Add(intersectionEdge);
+            return;
+        }
+        else if (trianglesToUse == 0)
+        {
+            //foreach (var edge in effectedEdges)
+            //{
+            //    Vector3 worldPosition = transform.localToWorldMatrix.MultiplyPoint(edge.position);
+
+            //    DebugDrawer.DrawSphere(worldPosition, 0.05f, Color.red);
+            //}
+
+
+            pgn.GetEdgeList().Clear();
+            pgn.GetEdgeList().AddRange(nonEffectedEdges);
+
+
+            return;
+
+        }
+
+
+
+        splitEffectedBoundaryEdges.Sort(splitComparer);
+
+        //add all  splitEffectedBoundaryEdges except first and last
+        for (int i = 0; i < splitEffectedBoundaryEdges.Count; i++)
+        {
+            if (i != 0 && i != splitEffectedBoundaryEdges.Count - 1)
+            {
+                effectedBoundaryEdges.Add(splitEffectedBoundaryEdges[i]);
+            }
+        }
+
+        HalfEdgeEdge firstSplitEdge = splitEffectedBoundaryEdges[0];
+        HalfEdgeEdge secondSplitEdge = splitEffectedBoundaryEdges[splitEffectedBoundaryEdges.Count - 1];
+
+        Vector3 worldStartEdge = transform.localToWorldMatrix.MultiplyPoint(firstSplitEdge.position);
+
+        bool startFromOutsideIntersection = shouldBeAbove == MeshSplitterUtils.IsPointAbovePlane(worldStartEdge, planePosition, planeNormal);
+
+        Vector3 startCurrentEdge = transform.localToWorldMatrix.MultiplyPoint(firstSplitEdge.position);
+        Vector3 startNextEdge = transform.localToWorldMatrix.MultiplyPoint(firstSplitEdge.nextEdge.position);
+
+        Vector3 startIntersection;
+        MeshSplitterUtils.LineToPlaneIntersection(startCurrentEdge, startNextEdge, planePosition, planeNormal, out startIntersection);
+
+
+        Vector3 endCurrentEdge = transform.localToWorldMatrix.MultiplyPoint(secondSplitEdge.position);
+        Vector3 endNextEdge = transform.localToWorldMatrix.MultiplyPoint(secondSplitEdge.nextEdge.position);
+
+        Vector3 endIntersection;
+        MeshSplitterUtils.LineToPlaneIntersection(endCurrentEdge, endNextEdge, planePosition, planeNormal, out endIntersection);
+
+        Vector3 startToEnd = endIntersection - startIntersection;
+
+
+
+        Vector3 worldFirstEdgePosition = transform.localToWorldMatrix.MultiplyPoint(firstSplitEdge.GetEdgeLocalCentroid());
+        Vector3 worldSecondEdgePosition = transform.localToWorldMatrix.MultiplyPoint(secondSplitEdge.GetEdgeLocalCentroid());
+
+
+
+        Vector3 sortingDirection = (worldSecondEdgePosition - worldFirstEdgePosition).normalized;
+        Vector3 sortingPosition = (worldFirstEdgePosition + worldSecondEdgePosition) / 2.0f;
+
+
+        List<HalfEdgeEdge> sortedEdges = new List<HalfEdgeEdge>();
+
+        EdgeComparer nonSplitComparer = new EdgeComparer(transform, sortingDirection, sortingPosition);
+        effectedBoundaryEdges.Sort(nonSplitComparer);
+
+
+
+        sortedEdges.Add(firstSplitEdge);
+        sortedEdges.AddRange(effectedBoundaryEdges);
+        sortedEdges.Add(secondSplitEdge);
 
         //---------------------- Splitting
 
@@ -378,18 +642,19 @@ public class PolygonMeshSplitter : MonoBehaviour
 
         if (categorizeCount == categorizeCountDebugAt && cutCount == cutCountDebugAt)
         {
-            DebugDrawer.DrawCircleLine(worldAverageEffectedEdgesCentroid, worldAverageEffectedEdgesCentroid + normalCrossPolygonNormal, 0.05f, 5, Color.magenta);
-            DebugDrawer.DrawCircleLine(worldAverageEffectedEdgesCentroid, worldAverageEffectedEdgesCentroid + tangentToPolygonNormal, 0.05f, 5, Color.cyan);
-            //DebugDrawer.DrawSphere(worldSupport, 0.05f, Color.green);
+            DebugDrawer.DrawCircleLine(sortingPosition , sortingPosition+ sortingDirection, 0.01f, 20, Color.magenta);
+            DebugDrawer.DrawCircleLine(worldAverageEffectedEdgesCentroid, worldAverageEffectedEdgesCentroid + tangentToPolygonNormal, 0.005f, 5, Color.cyan);
 
+            //DebugDrawer.DrawSphere(startIntersection, 0.1f, Color.gray);
+            //DebugDrawer.DrawSphere(endIntersection, 0.05f, Color.black);
         }
 
 
 
 
         int j = 0;
-        int maxI = effectedBoundaryEdges.Count;
-        foreach (var edge in effectedBoundaryEdges)
+        int maxI = sortedEdges.Count;
+        foreach (var edge in sortedEdges)
         {
 
 
@@ -411,79 +676,169 @@ public class PolygonMeshSplitter : MonoBehaviour
                 DebugDrawer.DrawCircleLine(
                     worldEdgePosition + edgeToCentroid,
                     worldNextEdgePosition + nextEdgeToCentroid,
-                    0.01f, 20, new Color(c,c,c));
+                    0.01f, 20, new Color(c, c, c));
                 j++;
             }
         }
 
-        Vector3 worldStartEdge = transform.localToWorldMatrix.MultiplyPoint(effectedBoundaryEdges[0].position);
 
-        bool startFromOutsideIntersection = shouldBeAbove == MeshSplitterUtils.IsPointAbovePlane(worldStartEdge, planePosition, planeNormal);
 
-        //Debug.Log("startFromOutsideIntersection ? " + startFromOutsideIntersection);
 
         HalfEdgeEdge supportEdge = null;
 
-        //-------------------------------------- Find intersection line ----------------------------------//
-        if(effectedBoundaryEdges.Count == 0) { return; }
+        //-------------------------------------- Find intersection line for first and last split edges----------------------------------//
+        //if(sortedEdges.Count == 0) { return; }
 
-        Vector3 startCurrentEdge = transform.localToWorldMatrix.MultiplyPoint(effectedBoundaryEdges[0].position);
-        Vector3 startNextEdge = transform.localToWorldMatrix.MultiplyPoint(effectedBoundaryEdges[0].nextEdge.position);
+        //Debug.Log("sortedEdges.Count " + sortedEdges.Count);
 
-        Vector3 startIntersection;
-        MeshSplitterUtils.LineToPlaneIntersection(startCurrentEdge, startNextEdge, planePosition, planeNormal, out startIntersection);
+        bool isFirstOnPlane = sortedEdges[0].isVertexOnPlane(transform, planePosition, planeNormal);
+        //startFromOutsideIntersection = isFirstOnPlane ? false : true;
 
-
-        Vector3 endCurrentEdge = transform.localToWorldMatrix.MultiplyPoint(effectedBoundaryEdges[effectedBoundaryEdges.Count-1].position);
-        Vector3 endNextEdge = transform.localToWorldMatrix.MultiplyPoint(effectedBoundaryEdges[effectedBoundaryEdges.Count - 1].nextEdge.position);
-
-        Vector3 endIntersection;
-        MeshSplitterUtils.LineToPlaneIntersection(endCurrentEdge, endNextEdge, planePosition, planeNormal, out endIntersection);
-
-        Vector3 startToEnd = endIntersection - startIntersection;
-
-        //if (categorizeCount == categorizeCountDebugAt && cutCount == cutCountDebugAt)
-        //{
-        //    DebugDrawer.DrawSphere(
-        //       endCurrentEdge, 0.2f, Color.gray);
-
-        //    DebugDrawer.DrawSphere(
-        //       endNextEdge, 0.2f, Color.gray);
-
-        //    DebugDrawer.DrawSphere(
-        //     endIntersection, 0.2f, Color.cyan);
-        //}
-
-
-        for (int i = 1; i < effectedBoundaryEdges.Count - 1; i++)
+        if (categorizeCount == categorizeCountDebugAt && cutCount == cutCountDebugAt)
         {
-            if(startFromOutsideIntersection)
+           // Debug.Log(" isFirstOnPlane " + isFirstOnPlane);
+        }
+
+        if (isFirstOnPlane)
+        {
+            Vector3 worldEnd = transform.localToWorldMatrix.MultiplyPoint(sortedEdges[sortedEdges.Count - 1].position);
+
+            startFromOutsideIntersection = shouldBeAbove == !MeshSplitterUtils.IsPointAbovePlane(worldEnd, planePosition, planeNormal);
+        }
+
+        for (int i = 1; i < sortedEdges.Count - 1; i++)
+        {
+            if (startFromOutsideIntersection)
             {
-                OutsideIntersectionMeshRegeneration(effectedBoundaryEdges, i
-            ,ref supportEdge, planePosition, planeNormal, tangentToPolygonNormal, startIntersection, startToEnd);
+                InsideIntersectionMeshRegeneration(sortedEdges, generatedHalfEdges, i, ref supportEdge, startIntersection, startToEnd);
             }
             else
             {
-                InsideIntersectionMeshRegeneration(effectedBoundaryEdges, i
-            ,ref supportEdge, planePosition, planeNormal, tangentToPolygonNormal,startIntersection,startToEnd);
+                OutsideIntersectionMeshRegeneration(sortedEdges, generatedHalfEdges, i, ref supportEdge, startIntersection, startToEnd);
             }
-            
-
         }
 
+        int beforeCount = pgn.GetEdgeList().Count;
+        pgn.GetEdgeList().Clear();
 
-        pgn.GetEdgeList().AddRange(effectedBoundaryEdges);
+        if (categorizeCount == categorizeCountDebugAt + (sortedEdges.Count - 2) && cutCount == cutCountDebugAt)
+        {
+            Debug.Log("sortedEdges count " + sortedEdges.Count);
+            foreach(var edge in sortedEdges)
+            {
+                Vector3 edgePos = transform.localToWorldMatrix.MultiplyPoint(edge.position);
+                Vector3 edgeNext = transform.localToWorldMatrix.MultiplyPoint(edge.nextEdge.position);
+
+                //Debug.Log("edgePos " + edgePos.ToString("F2") + edgeNext.ToString("F2"));
+                //DebugDrawer.DrawCircleLine(edgePos, edgeNext, 0.015f, 8, Color.cyan);
+            }
+
+            foreach (var edge in generatedHalfEdges)
+            {
+                Vector3 edgePos = transform.localToWorldMatrix.MultiplyPoint(edge.position);
+                Vector3 edgeNext = transform.localToWorldMatrix.MultiplyPoint(edge.nextEdge.position);
+
+
+                //DebugDrawer.DrawCircleLine(edgePos, edgeNext, 0.015f, 8, Color.magenta);
+            }
+
+            //foreach (var edge in nonEffectedEdges)
+            //{
+            //    Vector3 edgePos = transform.localToWorldMatrix.MultiplyPoint(edge.position);
+            //    Vector3 edgeNext = transform.localToWorldMatrix.MultiplyPoint(edge.nextEdge.position);
+
+
+            //    DebugDrawer.DrawCircleLine(edgePos, edgeNext, 0.015f, 8, Color.grey);
+            //}
+
+
+            Debug.Log("nonEffectedEdges " + nonEffectedEdges.Count
+                + " sortedEdges " + sortedEdges.Count
+                + ",generatedHalfEdges "
+                + generatedHalfEdges.Count);
+        }
+
+        pgn.GetEdgeList().AddRange(nonEffectedEdges);
+        pgn.GetEdgeList().AddRange(sortedEdges);
         pgn.GetEdgeList().AddRange(generatedHalfEdges);
+        int afterCount = pgn.GetEdgeList().Count;
 
 
+
+        if (categorizeCount == categorizeCountDebugAt + (sortedEdges.Count - 2) && cutCount == cutCountDebugAt)
+        {
+            Debug.Log("END -> beforeCount " + beforeCount + " ,afterCount " + afterCount);
+        }
 
 
     }
 
+    void HandleTriangleSplit(bool startFromOutsideIntersection
+        ,HalfEdgeEdge firstSplitEdge,HalfEdgeEdge secondSplitEdge,Vector3 startIntersection,Vector3 endIntersection,out HalfEdgeEdge intersectionEdge)
+    {
 
 
-    void InsideIntersectionMeshRegeneration(List<HalfEdgeEdge> effectedBoundaryEdges, int i
-        , ref HalfEdgeEdge supportEdge, Vector3 planePosition, Vector3 planeNormal, Vector3 tangentToPolygonNormal
+        if (!startFromOutsideIntersection)
+        {
+            firstSplitEdge.position = transform.worldToLocalMatrix.MultiplyPoint(startIntersection);
+
+            intersectionEdge = new HalfEdgeEdge
+                (transform.worldToLocalMatrix.MultiplyPoint(endIntersection));
+
+            HalfEdgeEdge.ConnectIntoTriangle(firstSplitEdge, secondSplitEdge, intersectionEdge);
+
+            if (categorizeCount == categorizeCountDebugAt && cutCount == cutCountDebugAt)
+            {
+
+                DebugDrawer.DrawSphere(
+                    transform.localToWorldMatrix.MultiplyPoint(firstSplitEdge.position), 0.005f, Color.red);
+
+                DebugDrawer.DrawSphere(
+                    transform.localToWorldMatrix.MultiplyPoint(intersectionEdge.position), 0.01f, Color.black);
+
+                DebugDrawer.DrawSphere(
+                    transform.localToWorldMatrix.MultiplyPoint(secondSplitEdge.position), 0.005f, Color.green);
+
+
+            }
+            categorizeCount++;
+
+        }
+        else
+        {
+            
+            intersectionEdge = new HalfEdgeEdge
+                (transform.worldToLocalMatrix.MultiplyPoint(startIntersection));
+
+            Vector3 originalCentroid = secondSplitEdge.GetEdgeLocalCentroid();
+
+            secondSplitEdge.position =
+                transform.worldToLocalMatrix.MultiplyPoint(endIntersection);
+
+            HalfEdgeEdge.ConnectIntoTriangle(firstSplitEdge, intersectionEdge, secondSplitEdge);
+
+            if (categorizeCount == categorizeCountDebugAt && cutCount == cutCountDebugAt)
+            {
+
+                DebugDrawer.DrawSphere(
+                    transform.localToWorldMatrix.MultiplyPoint(firstSplitEdge.position), 0.005f, Color.red);
+
+                DebugDrawer.DrawSphere(
+                    transform.localToWorldMatrix.MultiplyPoint(intersectionEdge.position), 0.1f, Color.black);
+
+                DebugDrawer.DrawSphere(
+                    transform.localToWorldMatrix.MultiplyPoint(secondSplitEdge.position), 0.005f, Color.green);
+
+
+
+            }
+            categorizeCount++;
+        }
+    }
+
+
+    void OutsideIntersectionMeshRegeneration(List<HalfEdgeEdge> effectedBoundaryEdges, List<HalfEdgeEdge> generatedEdges, int i
+        , ref HalfEdgeEdge supportEdge
         ,Vector3 worldStartIntersection,Vector3 startToEndIntersection)
     {
         HalfEdgeEdge baseEdge = effectedBoundaryEdges[i];
@@ -501,6 +856,7 @@ public class PolygonMeshSplitter : MonoBehaviour
         {
             currentSupportEdge = new HalfEdgeEdge(supportEdge.nextEdge.position);
             currentSupportEdge.SetPairing(supportEdge);
+            generatedEdges.Add(currentSupportEdge);
         }
 
 
@@ -509,85 +865,37 @@ public class PolygonMeshSplitter : MonoBehaviour
         if (i + 1 == effectedBoundaryEdges.Count - 1)
         {
             nextSupportEdge = effectedBoundaryEdges[effectedBoundaryEdges.Count - 1];
-
+            //currentSupportEdge.position = transform.worldToLocalMatrix.MultiplyPoint(worldStartIntersection + startToEndIntersection);
         }
         else
         {
             nextSupportEdge = new HalfEdgeEdge(baseEdge.nextEdge.position);
-
-            
-
+            generatedEdges.Add(nextSupportEdge);
         }
+
         supportEdge = nextSupportEdge;
         //----------------------------------- Create Intersection -------------------------------------------------------------//
         //Vector3 intersectionPosition;
         int maxData = effectedBoundaryEdges.Count - 1;
-        int currentIndex = i + 1;
+        int currentIndex = i+1;
         float interpolant = (float) currentIndex / maxData;
 
-        if (categorizeCount == categorizeCountDebugAt && cutCount == cutCountDebugAt)
-        {
-            Debug.Log("currentIndex  " + currentIndex);
-        }
+        HalfEdgeEdge intersectionEdge = new HalfEdgeEdge(
+            transform.worldToLocalMatrix.MultiplyPoint(worldStartIntersection + (startToEndIntersection * interpolant)));
+        generatedEdges.Add(intersectionEdge);
 
-            HalfEdgeEdge intersectionEdge = new HalfEdgeEdge(
-            transform.worldToLocalMatrix.MultiplyPoint(worldStartIntersection + (startToEndIntersection * interpolant) ));
 
         CreateAllignedQuad(currentSupportEdge,  nextSupportEdge,  baseEdge,
-        intersectionEdge);
+        intersectionEdge,generatedEdges);
 
     }
-
-    void CreateAllignedQuad(HalfEdgeEdge currentSupport, HalfEdgeEdge nextSupport, HalfEdgeEdge baseEdge, 
-        HalfEdgeEdge intersectionEdge)
-    {
-        //create support triangle located at base end
-        HalfEdgeEdge supportTriangle = new HalfEdgeEdge(baseEdge.nextEdge.position);
-
-        //connect currentSupport - supportTriangle - baseEdge
-        HalfEdgeEdge.ConnectIntoTriangle(currentSupport,baseEdge,supportTriangle );
-
-        //create next support triangle located at base
-        HalfEdgeEdge nextSupportTriangle = new HalfEdgeEdge(currentSupport.position);
-
-        //connect next support triangle - intersection - next support
-        HalfEdgeEdge.ConnectIntoTriangle(nextSupportTriangle, nextSupport, intersectionEdge);
-
-        supportTriangle.SetPairing(nextSupportTriangle);
-
-        if (categorizeCount == categorizeCountDebugAt && cutCount == cutCountDebugAt)
-        {
-            Debug.Log("////////////////////CREATE NON ALLIGN DRAW");
-
-            DebugDrawer.DrawSphere(
-                transform.localToWorldMatrix.MultiplyPoint(currentSupport.position), 0.1f, Color.red);
-
-            DebugDrawer.DrawSphere(
-                transform.localToWorldMatrix.MultiplyPoint(intersectionEdge.position), 0.1f, Color.black);
-
-            DebugDrawer.DrawSphere(
-                transform.localToWorldMatrix.MultiplyPoint(baseEdge.position), 0.1f, Color.green);
-
-            DebugDrawer.DrawSphere(
-                transform.localToWorldMatrix.MultiplyPoint(nextSupport.position), 0.1f, Color.blue);
-
-            //Debug.Log(" ")
-
-
-        }
-        categorizeCount++;
-
-
-    }
-
-    
-    void OutsideIntersectionMeshRegeneration(List<HalfEdgeEdge> effectedBoundaryEdges,int i
-        ,ref HalfEdgeEdge supportEdge,Vector3 planePosition,Vector3 planeNormal,Vector3 tangentToPolygonNormal,
-        Vector3 worldStartIntersection, Vector3 startToEndIntersection)
+    void InsideIntersectionMeshRegeneration(List<HalfEdgeEdge> effectedBoundaryEdges,List<HalfEdgeEdge> generatedEdges, int i
+       , ref HalfEdgeEdge supportEdge, 
+       Vector3 worldStartIntersection, Vector3 startToEndIntersection)
     {
         //select Base Half Edge
         HalfEdgeEdge baseEdge = effectedBoundaryEdges[i];
-       
+
 
         //----------------------------------- Create currentSupportEdge -------------------------------------------------------------//
         HalfEdgeEdge currentSupportEdge;
@@ -595,12 +903,13 @@ public class PolygonMeshSplitter : MonoBehaviour
         if (i == 1)
         {
             currentSupportEdge = effectedBoundaryEdges[0];
-
+            //currentSupportEdge.position = transform.worldToLocalMatrix.MultiplyPoint(worldStartIntersection);
         }
         else
         {
             currentSupportEdge = new HalfEdgeEdge(baseEdge.nextEdge.position);
             currentSupportEdge.SetPairing(supportEdge);
+            generatedEdges.Add(currentSupportEdge);
 
         }
         //----------------------------------- Create nextcurrentSupportEdge -------------------------------------------------------------//
@@ -616,12 +925,13 @@ public class PolygonMeshSplitter : MonoBehaviour
         else
         {
             nextSupportEdge = new HalfEdgeEdge(
-                transform.worldToLocalMatrix.MultiplyPoint(worldStartIntersection + startToEndIntersection * (float)i/maxData));
+                transform.worldToLocalMatrix.MultiplyPoint(worldStartIntersection + startToEndIntersection * (float)i / maxData));
+            generatedEdges.Add(nextSupportEdge);
         }
 
         //----------------------------------- Create Intersection -------------------------------------------------------------//
-        
-        int currentIndex = i - 1 < 0 ? 0 : i - 1;
+
+        int currentIndex = i - 1;
         if (categorizeCount == categorizeCountDebugAt && cutCount == cutCountDebugAt)
         {
             Debug.Log("currentIndex  " + currentIndex);
@@ -632,36 +942,106 @@ public class PolygonMeshSplitter : MonoBehaviour
 
         HalfEdgeEdge intersectionEdge = new HalfEdgeEdge(
             transform.worldToLocalMatrix.MultiplyPoint(worldStartIntersection + (startToEndIntersection * interpolant)));
+        generatedEdges.Add(intersectionEdge);
 
-        CreateNonAllignedQuad(currentSupportEdge, nextSupportEdge, baseEdge, intersectionEdge
-    , tangentToPolygonNormal, planePosition, planeNormal);
+
+        CreateNonAllignedQuad(currentSupportEdge, nextSupportEdge, baseEdge, intersectionEdge,generatedEdges);
 
         supportEdge = nextSupportEdge;
 
     }
 
-    void CreateNonAllignedQuad(
-        HalfEdgeEdge currentSupport, HalfEdgeEdge nextSupport, HalfEdgeEdge baseEdge, HalfEdgeEdge intersectionEdge
-        , Vector3 connectionEdgeDirection, Vector3 planePosition, Vector3 planeNormal)
+    void CreateAllignedQuad(HalfEdgeEdge currentSupport, HalfEdgeEdge nextSupport, HalfEdgeEdge baseEdge, 
+        HalfEdgeEdge intersectionEdge,List<HalfEdgeEdge> generatedEdges)
     {
         //create new supporttriangle located at next support
         HalfEdgeEdge supportTriangle = new HalfEdgeEdge(nextSupport.position);
 
 
         //currentSupport-intersection-supporttriangle
-        HalfEdgeEdge.ConnectIntoTriangle(currentSupport, intersectionEdge, supportTriangle);
+        HalfEdgeEdge.ConnectIntoTriangle(currentSupport, supportTriangle,intersectionEdge);
 
         //create new nextsupporttriangle located at currentsupport
         HalfEdgeEdge nextSupportTriangle = new HalfEdgeEdge(currentSupport.position);
 
         //nextsupporttriangle-nextSupport-baseEdge
-        HalfEdgeEdge.ConnectIntoTriangle(nextSupportTriangle, nextSupport, baseEdge);
+        HalfEdgeEdge.ConnectIntoTriangle(nextSupportTriangle, baseEdge,nextSupport );
 
         supportTriangle.SetPairing(nextSupportTriangle);
 
- 
+        generatedEdges.Add(supportTriangle);
+        generatedEdges.Add(nextSupportTriangle);
+
+        if (categorizeCount == categorizeCountDebugAt && cutCount == cutCountDebugAt)
+        {
+            Debug.Log("////////////////////CREATE NON ALLIGN DRAW");
+
+            DebugDrawer.DrawSphere(
+                transform.localToWorldMatrix.MultiplyPoint(currentSupport.position), 0.02f, Color.red);
+
+            DebugDrawer.DrawSphere(
+                transform.localToWorldMatrix.MultiplyPoint(intersectionEdge.position), 0.02f, Color.black);
+
+            DebugDrawer.DrawSphere(
+                transform.localToWorldMatrix.MultiplyPoint(baseEdge.position), 0.02f, Color.green);
+
+            DebugDrawer.DrawSphere(
+                transform.localToWorldMatrix.MultiplyPoint(nextSupport.position), 0.02f, Color.blue);
+
+            //Debug.Log(" ")
 
 
+        }
+        categorizeCount++;
+
+    }
+
+    
+   
+    //this
+    void CreateNonAllignedQuad(
+        HalfEdgeEdge currentSupport, HalfEdgeEdge nextSupport, HalfEdgeEdge baseEdge, HalfEdgeEdge intersectionEdge,
+        List<HalfEdgeEdge> generatedEdges
+        )
+    {
+        //create new supporttriangle located at next support
+        HalfEdgeEdge supportTriangle = new HalfEdgeEdge(nextSupport.position);
+
+
+        //currentSupport-intersection-supporttriangle
+        HalfEdgeEdge.ConnectIntoTriangle(currentSupport, intersectionEdge,supportTriangle );
+
+        //create new nextsupporttriangle located at currentsupport
+        HalfEdgeEdge nextSupportTriangle = new HalfEdgeEdge(currentSupport.position);
+
+        //nextsupporttriangle-nextSupport-baseEdge
+        HalfEdgeEdge.ConnectIntoTriangle(nextSupportTriangle, nextSupport ,baseEdge);
+
+        supportTriangle.SetPairing(nextSupportTriangle);
+        generatedEdges.Add(supportTriangle);
+        generatedEdges.Add(nextSupportTriangle);
+
+        if (categorizeCount == categorizeCountDebugAt && cutCount == cutCountDebugAt)
+        {
+            Debug.Log("////////////////////CREATE NON ALLIGN DRAW");
+
+            DebugDrawer.DrawSphere(
+                transform.localToWorldMatrix.MultiplyPoint(currentSupport.position), 0.02f, Color.red);
+
+            DebugDrawer.DrawSphere(
+                transform.localToWorldMatrix.MultiplyPoint(intersectionEdge.position), 0.02f, Color.black);
+
+            DebugDrawer.DrawSphere(
+                transform.localToWorldMatrix.MultiplyPoint(baseEdge.position), 0.02f, Color.green);
+
+            DebugDrawer.DrawSphere(
+                transform.localToWorldMatrix.MultiplyPoint(nextSupport.position), 0.02f, Color.blue);
+
+            //Debug.Log(" ")
+
+
+        }
+        categorizeCount++;
     }
 
 
@@ -672,6 +1052,7 @@ public class PolygonMeshSplitter : MonoBehaviour
     void recrusiveCheckTriangleSplitState(HalfEdgeEdge edge,Vector3 planePosition,Vector3 planeNormal
         ,List<HalfEdgeEdge> effectedEdge, List<HalfEdgeEdge> unEffectedEdge,bool shouldkeepAbove)
     {
+        if(edge == null) { return; }
         if (edge.isVisited) { return; }
 
         edge.MarkTriangleVisited();
@@ -730,14 +1111,23 @@ public class PolygonMeshSplitter : MonoBehaviour
         bool foundUnvisitedSplitPolygon = FindFirstUnvisitedPolygonWithState(splitPgn
                    , out initialSplitPgn, PolygonState.Split);
 
+        Debug.Log("splitPgn detect " + splitPgn.Count);
+
+        foreach(var pol in splitPgn)
+        {
+            pol.visited = false;
+        }
+
         //while a non visited split polygon can be found 
         while (foundUnvisitedSplitPolygon)
         {
             Debug.Log("->Creating island");
             List<SplittablePolygon> slicingIsland = new List<SplittablePolygon>();
-
+          
             recursiceDetectSplitPolygonIsland
                 (initialSplitPgn, slicingIsland);
+
+            Debug.Log("island " + slicingIsland.Count);
 
             slicingIslandList.Add(slicingIsland);
 
@@ -822,20 +1212,27 @@ public class PolygonMeshSplitter : MonoBehaviour
         
     }
 
-
+    public int debugR = 0;
+    public int current = 0;
     void recursiceDetectSplitPolygonIsland(SplittablePolygon polygon,List<SplittablePolygon> splitIsland)
     {
-        if(polygon.state == PolygonState.Split && !polygon.visited)
+
+        polygon.visited = true;
+
+        splitIsland.Add(polygon);
+        current++;
+
+        Vector3 polygonCentroid = transform.localToWorldMatrix.MultiplyPoint(polygon.localCentroid);
+
+        foreach (var edge in polygon.GetEdgeList())
         {
-            polygon.visited = true;
-
-            splitIsland.Add(polygon);
-
-            foreach(var edge in polygon.GetEdgeList())
+            if (edge.isBoundary)
             {
-                if(edge.isBoundary)
+                if (edge.pairingEdge != null)
                 {
-                    if(edge.pairingEdge != null)
+                    var parentPolygonNext = edge.pairingEdge.parentPolygon;
+                    
+                    if (parentPolygonNext.state == PolygonState.Split && !parentPolygonNext.visited)
                     {
                         recursiceDetectSplitPolygonIsland(
                             edge.pairingEdge.parentPolygon, splitIsland);
@@ -843,7 +1240,10 @@ public class PolygonMeshSplitter : MonoBehaviour
                 }
             }
         }
+
+
     }
+    
 
 
 
